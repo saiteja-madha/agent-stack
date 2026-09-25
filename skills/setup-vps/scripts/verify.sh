@@ -4,6 +4,25 @@ set -u
 section() { printf '\n===== %s =====\n' "$1"; }
 cmd() { "$@" 2>/dev/null || true; }
 
+# Make the user systemd manager reachable from non-interactive SSH/agent shells
+# when its runtime bus exists, without prompting for credentials.
+user_uid=$(id -u)
+if [ -S "/run/user/$user_uid/bus" ]; then
+  export XDG_RUNTIME_DIR="/run/user/$user_uid"
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$user_uid/bus"
+fi
+
+status_cmd() {
+  local output
+  if ! output=$("$@" 2>/dev/null); then
+    echo "[unavailable]"
+  elif [ -n "$output" ]; then
+    printf '%s\n' "$output"
+  else
+    echo "[unavailable]"
+  fi
+}
+
 section "OS / HOST"
 cmd grep -E '^(PRETTY_NAME|VERSION_ID)=' /etc/os-release
 cmd uname -srmo
@@ -63,16 +82,16 @@ else
 fi
 
 section "SERVICES"
-printf 't3code(user):      enabled='; cmd systemctl --user is-enabled t3code.service | head -1
-printf '                   active=';  cmd systemctl --user is-active t3code.service | head -1
-printf 'code-server:       enabled='; cmd sudo systemctl is-enabled "code-server@$USER.service" | head -1
-printf '                   active=';  cmd sudo systemctl is-active "code-server@$USER.service" | head -1
-printf 'opencode:          enabled='; cmd sudo systemctl is-enabled opencode.service | head -1
-printf '                   active=';  cmd sudo systemctl is-active opencode.service | head -1
-printf 'cloudflared:       enabled='; cmd sudo systemctl is-enabled cloudflared.service | head -1
-printf '                   active=';  cmd sudo systemctl is-active cloudflared.service | head -1
-printf 'tailscaled:        enabled='; cmd sudo systemctl is-enabled tailscaled.service | head -1
-printf '                   active=';  cmd sudo systemctl is-active tailscaled.service | head -1
+printf 't3code(user):      enabled='; status_cmd systemctl --user is-enabled t3code.service | head -1
+printf '                   active=';  status_cmd systemctl --user is-active t3code.service | head -1
+printf 'code-server:       enabled='; status_cmd sudo -n systemctl is-enabled "code-server@$USER.service" | head -1
+printf '                   active=';  status_cmd sudo -n systemctl is-active "code-server@$USER.service" | head -1
+printf 'opencode:          enabled='; status_cmd sudo -n systemctl is-enabled opencode.service | head -1
+printf '                   active=';  status_cmd sudo -n systemctl is-active opencode.service | head -1
+printf 'cloudflared:       enabled='; status_cmd sudo -n systemctl is-enabled cloudflared.service | head -1
+printf '                   active=';  status_cmd sudo -n systemctl is-active cloudflared.service | head -1
+printf 'tailscaled:        enabled='; status_cmd sudo -n systemctl is-enabled tailscaled.service | head -1
+printf '                   active=';  status_cmd sudo -n systemctl is-active tailscaled.service | head -1
 
 section "CODE-SERVER CONFIG (SANITIZED)"
 if [ -f "$HOME/.config/code-server/config.yaml" ]; then
@@ -87,6 +106,9 @@ printf '\n--- Serve ---\n'
 cmd tailscale serve status
 printf '\n--- Funnel ---\n'
 cmd tailscale funnel status
+
+section "T3 CONNECT"
+cmd t3 connect status
 
 section "FIREWALL"
 cmd sudo ufw status verbose
