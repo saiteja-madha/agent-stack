@@ -39,6 +39,7 @@ for spec in \
   'node:node --version' \
   'npm:npm --version' \
   'pnpm:pnpm --version' \
+  'uv:uv --version' \
   'git:git --version' \
   'python3:python3 --version' \
   'docker:docker --version' \
@@ -60,7 +61,7 @@ if command -v ss >/dev/null 2>&1; then
 fi
 
 section "EXPECTED PORTS"
-for port in 3773 4096 8080 8081; do
+for port in 4096 8080 8081; do
   printf 'port %-5s ' "$port"
   if ss -H -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)$port$"; then
     echo LISTENING
@@ -75,15 +76,13 @@ if [ -n "$opencode_lines" ]; then
   printf '%s\n' "$opencode_lines"
   count=$(printf '%s\n' "$opencode_lines" | grep -c . || true)
   if [ "$count" -gt 1 ]; then
-    echo "WARNING: more than one OpenCode serve/web process is running. Check whether T3 is spawning one while systemd owns another."
+    echo "WARNING: more than one OpenCode serve/web process is running. Check service ownership."
   fi
 else
   echo "No OpenCode serve/web process found."
 fi
 
 section "SERVICES"
-printf 't3code(user):      enabled='; status_cmd systemctl --user is-enabled t3code.service | head -1
-printf '                   active=';  status_cmd systemctl --user is-active t3code.service | head -1
 printf 'code-server:       enabled='; status_cmd sudo -n systemctl is-enabled "code-server@$USER.service" | head -1
 printf '                   active=';  status_cmd sudo -n systemctl is-active "code-server@$USER.service" | head -1
 printf 'opencode:          enabled='; status_cmd sudo -n systemctl is-enabled opencode.service | head -1
@@ -102,13 +101,12 @@ fi
 
 section "TAILSCALE"
 cmd tailscale status
+printf '\n--- Preferences (selected) ---\n'
+cmd tailscale debug prefs | grep -E '"(RunSSH|CorpDNS|ShieldsUp|AdvertiseRoutes|RouteAll|ExitNodeID|AutoUpdate)"' || true
 printf '\n--- Serve ---\n'
 cmd tailscale serve status
 printf '\n--- Funnel ---\n'
 cmd tailscale funnel status
-
-section "T3 CONNECT"
-cmd t3 connect status
 
 section "FIREWALL"
 cmd sudo ufw status verbose
@@ -116,12 +114,26 @@ cmd sudo ufw status verbose
 section "SSH EFFECTIVE SETTINGS"
 cmd sudo sshd -T | grep -E '^(port|permitrootlogin|passwordauthentication|pubkeyauthentication|allowusers|allowgroups|maxauthtries|x11forwarding) '
 
+section "PUBLIC EXPOSURE CHECK"
+if sudo ss -ltnup 2>/dev/null | grep -Eq '0\.0\.0\.0:|\[::\]:'; then
+  sudo ss -ltnup 2>/dev/null | grep -E '0\.0\.0\.0:|\[::\]:' || true
+else
+  echo "No wildcard listeners detected."
+fi
+echo "Expected application bindings: 127.0.0.1:4096, 127.0.0.1:8080, 127.0.0.1:8081."
+
 section "SECURITY SERVICES"
 printf 'fail2ban='; cmd systemctl is-active fail2ban | head -1
 printf 'unattended-upgrades='; cmd systemctl is-enabled unattended-upgrades | head -1
 
 section "DOCKER"
 cmd docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
+printf '\n--- restart policies ---\n'
+cmd docker ps -a --format '{{.Names}}' | while read -r container; do
+  [ -n "$container" ] || continue
+  printf '%s: ' "$container"
+  docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$container" 2>/dev/null || true
+done
 printf '\n--- volumes ---\n'
 cmd docker volume ls
 printf '\n--- networks ---\n'
@@ -132,6 +144,6 @@ printf '\n--- swarm ---\n'
 cmd docker info --format 'Swarm state: {{.Swarm.LocalNodeState}}'
 
 section "NOTES"
-echo "Expected local services: T3 :3773, OpenCode :4096, code-server :8080, Excalidraw :8081."
+echo "Expected local services: OpenCode :4096, code-server :8080, Excalidraw :8081."
 echo "Review any listener on 0.0.0.0/[::] and any Tailscale output not marked tailnet-only."
-echo "This script intentionally does not print credentials, Cloudflare tunnel tokens, T3 pairing tokens, or .env files."
+echo "This script intentionally does not print credentials, Cloudflare tunnel tokens, or .env files."

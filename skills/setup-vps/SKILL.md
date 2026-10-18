@@ -1,6 +1,6 @@
 ---
 name: setup-vps
-description: Audit, set up, and maintain a personal Ubuntu VPS for AI-assisted development using T3 Code, OpenCode, Codex CLI, code-server, Tailscale, Cloudflare Tunnel/Access, Docker, and Excalidraw. Use when provisioning or rebuilding the VPS, changing these services, checking exposure/firewall state, migrating workloads, or troubleshooting the AI development stack.
+description: Audit, set up, and maintain a personal Ubuntu VPS for AI-assisted development using OpenCode, Codex CLI, code-server, Tailscale, Cloudflare Tunnel/Access, Docker, and Excalidraw. Use when provisioning or rebuilding the VPS, changing these services, checking exposure/firewall state, migrating workloads, or troubleshooting the AI development stack.
 compatibility: Ubuntu/Debian VPS with bash, systemd, sudo, Docker, Tailscale, and Cloudflare Tunnel. Intended for a single-user AI development VPS.
 ---
 
@@ -8,10 +8,113 @@ compatibility: Ubuntu/Debian VPS with bash, systemd, sudo, Docker, Tailscale, an
 
 Maintain a small, secure AI-development VPS. Prefer simple host-native developer tooling, localhost-only listeners, and explicit private/reverse-proxy access.
 
+## Starting access policy
+
+For a first-time setup, use `sunny` as the only interactive SSH administrator. Keep
+SSH password authentication enabled because this installation intentionally uses a
+password over the private Tailscale network. Disable root SSH login with
+`PermitRootLogin no`; do not delete or lock the root account until recovery access
+has been verified. Permit SSH only through `tailscale0`, remove public IPv4 and IPv6
+SSH firewall rules, and keep `sunny` in the `sudo` group.
+
+Before changing SSH or firewall access, keep the current session open and verify a
+fresh `sunny` login over Tailscale. After the change, validate both `sshd -T` and
+the firewall rules. Never disable password authentication unless the user explicitly
+changes this policy.
+
+## Tailscale policy
+
+Keep the VPS named `homelab` in Tailscale. Tailscale is the only inbound network
+for administration and development access. Use regular OpenSSH over the Tailscale
+network with the `sunny` user and password authentication; do not use Tailscale SSH.
+Keep root SSH disabled. Allow future devices on the tailnet to connect.
+
+Keep MagicDNS and automatic Tailscale updates enabled. Keep Funnel disabled. Do not
+use this VPS as an exit node, subnet router, or route acceptor. Before removing the
+currently advertised `10.0.1.0/24` route, inspect the VPS and its current routes to
+confirm it is no longer needed; apply its removal only after explicit approval.
+
+Use Tailscale Serve for private HTTPS with separate MagicDNS names for code-server
+and OpenCode. Keep OpenCode's own password authentication enabled as a second
+security layer. code-server may use `auth: none` because it remains bound to
+localhost and is reachable only through private Tailscale Serve; it must never be
+publicly accessible. Neither service may be publicly accessible. Remove stale Serve
+routes when their target service is retired. Verify Tailscale state automatically,
+but apply configuration changes only after explicit approval.
+
+## SSH and firewall policy
+
+Keep SSH on port `22` with password authentication enabled. Enforce
+`AllowUsers sunny` and `PermitRootLogin no`; retain the root account for local or
+provider-console recovery. Allow SSH through `tailscale0` only. Keep application
+ports bound to localhost by default, with exceptions requiring explicit approval.
+
+Automate checks for public listeners and firewall exposure. Do not require fail2ban
+for this Tailscale-only SSH design. Before any SSH or firewall change, keep the
+current session open, obtain explicit approval, and require a successful fresh
+`sunny` session over Tailscale before considering the change complete.
+
+## Docker policy
+
+Enable the Docker daemon at boot and configure containers to restart automatically.
+Use Docker Compose as the standard deployment method. Bind all container ports to
+localhost by default. Use exact image tags or digests, never floating application
+tags. Do not automate volume backups yet. Require explicit approval for destructive
+Docker actions, including removing containers, images, volumes, networks, or build
+cache.
+
+## Toolchain and update policy
+
+Use pnpm 12 to manage Node.js 24.x LTS and project dependencies. Keep npm optional
+and do not manage it separately unless a project requires it. Use uv at its latest
+stable release to manage Python versions, environments, and dependencies. Keep the
+Ubuntu system Python available for OS tooling; select and pin Python per project,
+using the newest stable version supported by that project.
+
+OpenCode, Codex CLI, code-server, Tailscale, and cloudflared track their latest
+stable releases using their documented install sources. Docker Engine tracks the
+stable current major through Docker's official APT repository; Docker Compose uses
+the Docker Compose APT plugin and updates with Docker. Git tracks the latest Ubuntu
+APT version. Ubuntu receives security updates only.
+
+Maintenance will be a separate future command. Independent updates may run in
+parallel, but each install or update must be verified afterward. Service restarts
+require explicit approval. Preserve the previous version where possible and roll
+back failed updates when the tool supports rollback; otherwise stop and report the
+limitation. Keep cookbook procedures conceptual with minimal reproducible steps.
+
+## Tool inventory
+
+Maintain this table whenever the VPS is provisioned or updated. Pin application
+versions and container images before installation. System utilities may explicitly
+track the latest version from the configured Ubuntu OS repository when noted in the
+table; do not use floating application or container tags such as `latest`.
+
+| Tool | Desired version | Install source | Service/listener | Notes |
+|---|---|---|---|---|
+| Ubuntu | 22.04 LTS | Provider | apply security updates | |
+| Git | latest | `apt` | Host | Intentionally tracks the latest configured OS repository version |
+| Node.js | 24.x LTS | pnpm  `12` | Host | Use pnpm to manage the Node.js runtime |
+| npm | Optional | Bundled with Node.js | Host | Do not manage separately unless a project requires it |
+| pnpm | 12.x | Standalone installer | Host | Primary Node.js package manager and Node.js runtime manager |
+| uv | Latest stable | Official installer | Host | Use uv for Python installation, environments, and dependencies |
+| Python | Managed by uv | uv | Host | Install alongside system Python |
+| Docker Engine | Stable, current major | Official Docker APT repository | Host service | Controlled APT upgrades |
+| Docker Compose | Latest stable | Docker Compose APT plugin | Host | Update with Docker |
+| Docker CLI | Update with Docker | Official Docker APT repository | Host CLI | Update with Docker |
+| OpenCode | Latest stable | Official standalone installer | `127.0.0.1:4096` | Manual stable updates |
+| Codex CLI | Latest stable | Official native installer | Host CLI | Manual stable updates |
+| code-server | Latest stable | Official `.deb` installer | `127.0.0.1:8080` | Managed package updates |
+| Tailscale | Latest stable | Official APT repository | Host service | Regular security updates |
+| cloudflared | Latest stable | Official APT repository | Host service | Regular security updates |
+| Excalidraw | TBD | Docker image | `127.0.0.1:8081` | Use an explicit version or digest, not `latest` |
+
+The table records the desired version and installation method so a rebuild can be deterministic.
+
 ## Safety rules
 
 - Start with a read-only audit. Run `scripts/verify.sh` before proposing changes.
-- Never print, commit, or request API keys, OAuth tokens, T3 pairing tokens, Cloudflare tunnel tokens, passwords, private SSH keys, or `.env` contents.
+- Never print, commit, or request API keys, OAuth tokens, Cloudflare tunnel tokens, passwords, private SSH keys, or `.env` contents.
 - Do not run destructive Docker/system cleanup, remove volumes, uninstall software, alter firewall rules, or change SSH authentication without explicit user approval.
 - Before deleting a service or volume, identify what owns it and whether persistent data has been backed up or migrated.
 - Prefer exact service/container names over broad `pkill`, `docker system prune --volumes`, or similar blanket cleanup.
@@ -24,9 +127,7 @@ Use this layout unless the user explicitly chooses otherwise:
 
 ```text
 VPS host
-├── T3 Code             127.0.0.1:3773
-│   └── T3 Connect       → account-based remote access
-├── OpenCode            127.0.0.1:4096 (standalone backend)
+├── OpenCode            127.0.0.1:4096
 │   └── Cloudflare Access/Tunnel
 ├── Codex CLI           host-native, authenticated separately
 ├── code-server         127.0.0.1:8080
@@ -36,120 +137,6 @@ VPS host
 └── Docker
     └── Excalidraw      127.0.0.1:8081 → Cloudflare Access/Tunnel
 ```
-
-### T3 Code
-
-- Run T3 as the user's systemd user service.
-- Keep T3 listening on `127.0.0.1:3773`.
-- Use T3 Connect for account-based laptop/mobile access.
-- Ensure systemd user lingering is enabled so the T3 user service survives logout/reboot.
-
-#### Official documentation
-
-Keep the T3-specific procedure aligned with the upstream documentation:
-
-- [Install and first run](https://github.com/pingdotgg/t3code/blob/main/docs/user/install.md)
-- [Linux background service](https://github.com/pingdotgg/t3code/blob/main/docs/user/background-service.md)
-- [Remote access](https://github.com/pingdotgg/t3code/blob/main/docs/user/remote-access.md)
-- [Keeping the app and server in sync](https://github.com/pingdotgg/t3code/blob/main/docs/user/updating.md)
-- [Upstream repository](https://github.com/pingdotgg/t3code)
-
-#### Reproducible Linux setup
-
-Run these commands as the normal development user, never as `root`:
-
-```bash
-# Official installer; pin with T3CODE_VERSION when a fixed release is required.
-curl -fsSL https://t3.codes/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
-
-t3 --version
-t3 service install
-t3 service status
-```
-
-The installer places the launcher in `~/.local/bin`. Persist that directory in the
-user's normal shell configuration if the installer tells you it is not already on
-`PATH`. On Linux, `t3 service install` creates the user service and enables lingering;
-if it reports that lingering needs administrator approval, run only:
-
-```bash
-sudo loginctl enable-linger "$(id -un)"
-```
-
-Then rerun `t3 service install`. Do not run T3 with `sudo`, because that creates a
-separate root installation and identity.
-
-The service should result in `t3code.service`, a listener on
-`127.0.0.1:3773`, and a service that remains available after logout and reboot.
-Verify without printing logs that may contain sensitive data:
-
-```bash
-t3 service status
-systemctl --user is-active t3code.service
-ss -ltnH 'sport = :3773'
-loginctl show-user "$(id -un)" --property=Linger
-```
-
-#### T3 Connect
-
-Do not expose port `3773` publicly.
-
-On the VPS, run as the normal development user:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-t3 connect link --headless
-t3 service restart
-t3 connect status
-t3 service status
-```
-
-The headless link prints a browser URL and short authorization code. Approve it from
-another device while signed in to the same T3 account. Then choose the `homelab`
-environment in T3 Code on the client. `t3 connect login --headless` only authorizes
-the CLI; it does not publish the environment. T3 Connect renews access credentials,
-so it is preferable to repeatedly issuing pairing links for long-lived personal use.
-
-Use these controls to manage the connection without exposing credentials:
-
-```bash
-t3 connect status
-t3 connect unlink       # disable remote access but retain authorization
-t3 connect logout       # disable remote access and clear authorization
-```
-
-T3 Connect is separate from Cloudflare Access. It provides the T3 environment
-connection; Cloudflare remains an independent web route.
-
-#### Providers and updates
-
-Providers run on the T3 host and must be installed, authenticated, and available on
-the non-interactive service user's `PATH`. Examples:
-
-```bash
-codex login
-opencode auth login
-command -v codex opencode
-```
-
-Do not put provider tokens in this skill or in unit files. Keep provider
-authentication separate from T3 authentication.
-
-Keep the client and server versions aligned. Use `t3 update` for the normal release
-train, or `t3 update <version>` when a specific version is required. Updating restarts
-the service and can interrupt active agent work; check the service afterward.
-
-#### T3 troubleshooting
-
-- If the service stops after logout, check `loginctl ... Linger` and
-  `t3 service status`.
-- If the client reports a version mismatch, update the host server to the client
-  version using the upstream update instructions.
-- If T3 cannot see a provider, check the service user's `PATH` and provider binary
-  path; do not assume an interactive shell's version-manager setup is inherited.
-- If remote access fails, verify T3 is listening on loopback, then check
-  `t3 connect status` and `t3 service status`.
 
 ### OpenCode
 
@@ -166,8 +153,6 @@ the service and can interrupt active agent work; check the service afterward.
   and `opencode --version`.
 - Run exactly one OpenCode server on `127.0.0.1:4096` with
   `opencode serve --hostname 127.0.0.1 --port 4096`.
-- Configure T3's OpenCode provider `Server URL` as
-  `http://127.0.0.1:4096`; do not let T3 spawn a second OpenCode process.
 - Keep OpenCode's own authentication configured when its server is reachable through
   a reverse proxy; Cloudflare Access is an additional access layer.
 - The local `~/.opencode/package.json` and `node_modules` are supporting plugin
@@ -185,7 +170,9 @@ the service and can interrupt active agent work; check the service afterward.
 
 - Prefer native code-server for this AI-development VPS so the editor, agents, Git, Node, Python, SSH configuration, and repositories share the host environment.
 - Run it as `code-server@<user>` and bind only to `127.0.0.1:8080`.
-- When Cloudflare Access is the authentication layer, `auth: none` is acceptable only while the service remains localhost-only. Otherwise use code-server authentication.
+- `auth: none` is acceptable for code-server only when it remains localhost-bound
+  and is exposed exclusively through private Tailscale Serve; otherwise use
+  code-server authentication.
 - Preserve `~/.local/share/code-server` and `~/.config/code-server` when migrating or rebuilding.
 
 ### Excalidraw
@@ -211,7 +198,6 @@ Create these four public hostnames, replacing `<domain>` with the user's domain:
 opencode.<domain>  → http://127.0.0.1:4096  # standalone OpenCode mode
 code.<domain>      → http://127.0.0.1:8080
 draw.<domain>      → http://127.0.0.1:8081
-t3code.<domain>    → http://127.0.0.1:3773
 ```
 
 In **Zero Trust → Access → Applications**, create a self-hosted application
@@ -220,8 +206,8 @@ user's email identity. Enable independent MFA with TOTP and use a 7-day applicat
 session with MFA reauthentication every 24 hours.
 
 Keep the tunnel origins on loopback, require HTTPS at the public hostnames, and
-ensure WebSockets are allowed for OpenCode, code-server, and T3. Cloudflare Access
-protects the tunnel; it does not replace T3 authentication. Treat Access enrollment
+ensure WebSockets are allowed for OpenCode and code-server. Cloudflare Access
+protects the tunnel. Treat Access enrollment
 links, session credentials, and tunnel tokens as
 secrets.
 
@@ -232,8 +218,7 @@ References: [Cloudflare private applications](https://developers.cloudflare.com/
 
 1. Run `scripts/verify.sh` before updating and record the current service/listener
    state.
-2. Update one component at a time using its documented installer or package source.
-   T3 uses `t3 update`; OpenCode uses the official user-local installer; preserve
+2. Update components using their documented installer or package source; preserve
    service configuration and authentication data.
 3. Restart only the service affected by the update, then verify its version, health,
    and expected localhost listener.
@@ -242,15 +227,14 @@ References: [Cloudflare private applications](https://developers.cloudflare.com/
 
 Updates can interrupt active agent sessions, terminals, browser connections, or
    WebSockets. Do not print service command lines or logs that may contain tokens.
-Use the upstream [T3 update documentation](https://github.com/pingdotgg/t3code/blob/main/docs/user/updating.md)
-and [OpenCode installation documentation](https://opencode.ai/en/docs) for
+Use the [OpenCode installation documentation](https://opencode.ai/en/docs) for
 component-specific procedures.
 
 ## Workflow
 
 1. Run `scripts/verify.sh` and summarize the current state before changing anything.
 2. Compare actual listeners, services, Docker workloads, firewall rules, and tunnel state with the preferred architecture.
-3. Resolve ownership conflicts first. In particular, never allow T3 and systemd to start separate OpenCode servers on the same port.
+3. Resolve ownership conflicts first; never allow multiple OpenCode servers on the same port.
 4. Make the smallest change that reaches the desired state.
 5. After each service change, verify both systemd/container health and the expected localhost listener.
 6. After networking changes, verify the service is still not unintentionally public.
@@ -270,14 +254,14 @@ Report these separately from functional setup; do not silently change them:
 - unexpected listeners on `0.0.0.0` or `[::]`
 - Tailscale Funnel unexpectedly enabled
 
-Prefer public SSH key authentication or Tailscale SSH/access over password-based public SSH when the user is ready to harden the server.
+Use password-based OpenSSH over Tailscale as the approved access model; do not
+recommend public SSH keys or Tailscale SSH unless the user changes this policy.
 
 ## Completion criteria
 
 A setup is healthy when:
 
-- T3, code-server, OpenCode, Tailscale, and cloudflared services have the intended enabled/active state.
-- T3 listens on `127.0.0.1:3773`.
+- code-server, OpenCode, Tailscale, and cloudflared services have the intended enabled/active state.
 - In standalone OpenCode mode, exactly one backend listens on `127.0.0.1:4096`.
 - code-server listens on `127.0.0.1:8080`.
 - Excalidraw is the expected Docker workload and publishes only `127.0.0.1:8081:80`.
