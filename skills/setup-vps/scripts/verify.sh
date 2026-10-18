@@ -54,6 +54,11 @@ do
   printf '%-14s ' "$name"
   bash -lc "$command" 2>/dev/null | head -1 || true
 done
+printf '\n--- executable paths ---\n'
+for tool in node pnpm codex opencode cloudflared; do
+  printf '%-14s ' "$tool"
+  command -v "$tool" 2>/dev/null || echo '[missing]'
+done
 
 section "LISTENERS"
 if command -v ss >/dev/null 2>&1; then
@@ -61,7 +66,7 @@ if command -v ss >/dev/null 2>&1; then
 fi
 
 section "EXPECTED PORTS"
-for port in 4096 8080 8081; do
+for port in 80 4096 8080 8081; do
   printf 'port %-5s ' "$port"
   if ss -H -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)$port$"; then
     echo LISTENING
@@ -83,6 +88,7 @@ else
 fi
 
 section "SERVICES"
+printf 'traefik:           '; status_cmd sudo -n docker inspect -f '{{.State.Status}}' traefik | head -1
 printf 'code-server:       enabled='; status_cmd sudo -n systemctl is-enabled "code-server@$USER.service" | head -1
 printf '                   active=';  status_cmd sudo -n systemctl is-active "code-server@$USER.service" | head -1
 printf 'opencode:          enabled='; status_cmd sudo -n systemctl is-enabled opencode.service | head -1
@@ -91,6 +97,25 @@ printf 'cloudflared:       enabled='; status_cmd sudo -n systemctl is-enabled cl
 printf '                   active=';  status_cmd sudo -n systemctl is-active cloudflared.service | head -1
 printf 'tailscaled:        enabled='; status_cmd sudo -n systemctl is-enabled tailscaled.service | head -1
 printf '                   active=';  status_cmd sudo -n systemctl is-active tailscaled.service | head -1
+printf 'docker:            enabled='; status_cmd sudo -n systemctl is-enabled docker.service | head -1
+printf '                   active=';  status_cmd sudo -n systemctl is-active docker.service | head -1
+
+section "SYSTEM HEALTH"
+printf '%s\n' '--- failed units ---'
+cmd systemctl --failed --no-legend
+printf '%s\n' '--- reboot state ---'
+if [ -f /var/run/reboot-required ]; then
+  echo 'REBOOT REQUIRED'
+  cmd sed -n '1,40p' /var/run/reboot-required.pkgs
+else
+  echo 'No reboot required.'
+fi
+printf '%s\n' '--- Cockpit must be absent ---'
+if systemctl list-unit-files cockpit.socket --no-legend 2>/dev/null | grep -q cockpit.socket; then
+  echo 'WARNING: cockpit.socket is installed.'
+else
+  echo 'Cockpit is absent.'
+fi
 
 section "CODE-SERVER CONFIG (SANITIZED)"
 if [ -f "$HOME/.config/code-server/config.yaml" ]; then
@@ -102,11 +127,13 @@ fi
 section "TAILSCALE"
 cmd tailscale status
 printf '\n--- Preferences (selected) ---\n'
-cmd tailscale debug prefs | grep -E '"(RunSSH|CorpDNS|ShieldsUp|AdvertiseRoutes|RouteAll|ExitNodeID|AutoUpdate)"' || true
+cmd tailscale debug prefs | grep -E '"(RunSSH|CorpDNS|ShieldsUp|AdvertiseRoutes|AdvertiseServices|RouteAll|ExitNodeID|AutoUpdate)"' || true
 printf '\n--- Serve ---\n'
 cmd tailscale serve status
 printf '\n--- Funnel ---\n'
 cmd tailscale funnel status
+printf '\n--- Named service host ---\n'
+cmd tailscale status --json | jq '.Self | {Tags, ServiceHost: (.CapMap["service-host"] // null)}' || true
 
 section "FIREWALL"
 cmd sudo ufw status verbose
@@ -115,12 +142,14 @@ section "SSH EFFECTIVE SETTINGS"
 cmd sudo sshd -T | grep -E '^(port|permitrootlogin|passwordauthentication|pubkeyauthentication|allowusers|allowgroups|maxauthtries|x11forwarding) '
 
 section "PUBLIC EXPOSURE CHECK"
-if sudo ss -ltnup 2>/dev/null | grep -Eq '0\.0\.0\.0:|\[::\]:'; then
-  sudo ss -ltnup 2>/dev/null | grep -E '0\.0\.0\.0:|\[::\]:' || true
+wildcard_listeners=$(sudo ss -H -ltnup 2>/dev/null | awk '$5 ~ /^(0\.0\.0\.0:|\[::\]:|\*:)/ {print}' || true)
+if [ -n "$wildcard_listeners" ]; then
+  printf '%s\n' "$wildcard_listeners"
 else
   echo "No wildcard listeners detected."
 fi
-echo "Expected application bindings: 127.0.0.1:4096, 127.0.0.1:8080, 127.0.0.1:8081."
+echo "Expected application bindings: 127.0.0.1:80 (Traefik), 127.0.0.1:4096, 127.0.0.1:8080, 127.0.0.1:8081."
+echo "SSH may listen on wildcard addresses only while UFW permits inbound traffic exclusively on tailscale0."
 
 section "SECURITY SERVICES"
 printf 'fail2ban='; cmd systemctl is-active fail2ban | head -1
@@ -134,6 +163,11 @@ cmd docker ps -a --format '{{.Names}}' | while read -r container; do
   printf '%s: ' "$container"
   docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$container" 2>/dev/null || true
 done
+printf '\n--- compose ownership ---\n'
+cmd docker ps -a --format '{{.Names}}' | while read -r container; do
+  [ -n "$container" ] || continue
+  docker inspect -f '{{.Name}} project={{index .Config.Labels "com.docker.compose.project"}} files={{index .Config.Labels "com.docker.compose.project.config_files"}}' "$container" 2>/dev/null || true
+done
 printf '\n--- volumes ---\n'
 cmd docker volume ls
 printf '\n--- networks ---\n'
@@ -144,6 +178,6 @@ printf '\n--- swarm ---\n'
 cmd docker info --format 'Swarm state: {{.Swarm.LocalNodeState}}'
 
 section "NOTES"
-echo "Expected local services: OpenCode :4096, code-server :8080, Excalidraw :8081."
+echo "Expected local services: Traefik :80, OpenCode :4096, code-server :8080, Excalidraw :8081."
 echo "Review any listener on 0.0.0.0/[::] and any Tailscale output not marked tailnet-only."
 echo "This script intentionally does not print credentials, Cloudflare tunnel tokens, or .env files."

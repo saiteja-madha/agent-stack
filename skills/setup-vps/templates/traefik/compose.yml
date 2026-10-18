@@ -1,0 +1,24 @@
+services:
+  traefik:
+    image: ${TRAEFIK_IMAGE:?Set TRAEFIK_IMAGE to an immutable image digest}
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - --entrypoints.web.address=:80
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=proxy
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --api.dashboard=false
+    ports:
+      - 127.0.0.1:80:80
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./dynamic:/etc/traefik/dynamic:ro
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    name: proxy

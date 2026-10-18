@@ -1,0 +1,14 @@
+http:
+  routers:
+    <route-name>:
+      rule: Host(`<hostname>.<project-domain>`)
+      entryPoints:
+        - web
+      service: <route-name>
+  services:
+    <route-name>:
+      loadBalancer:
+        servers:
+          # This address must be reachable from the Traefik container.
+          # Do not use 127.0.0.1 here unless Traefik shares the host network.
+          - url: http://<private-host-origin>:<port>
