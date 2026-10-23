@@ -50,10 +50,10 @@ use this VPS as an exit node, subnet router, or route acceptor. Before removing 
 advertised route, inspect the VPS and its current routes to confirm it is no longer
 needed; apply its removal only after explicit approval.
 
-OpenCode and code-server may omit application passwords only while localhost-bound,
-Cloudflare Access protects every public route, and private access is tailnet-only.
-Remove stale routes with retired services. Audit automatically, but apply Tailscale
-changes only with explicit approval.
+OpenCode and code-server may omit application passwords only while bound to
+localhost. Cloudflare Access protects every public route, and private access is
+tailnet-only. Remove stale routes with retired services. Audit automatically, but
+apply Tailscale changes only with explicit approval.
 
 For direct tailnet access, prefer named Tailscale Services over machine-name paths
 or alternate ports. Define an admin-owned service-host tag in the tailnet policy,
@@ -86,7 +86,7 @@ Manually approve the tagged VPS for each service; use `autoApprovers.services` o
 if requested. Private URLs use Tailscale identity and grants, not Cloudflare Access;
 public hostnames use Cloudflare Tunnel and Access. Never embed the tailnet DNS suffix.
 
-After applying service configuration, verify that the node advertises all three
+After applying service configuration, verify that the node advertises all four
 services, the admin console shows the host as approved, each MagicDNS URL works
 from a tailnet device, and none works with Tailscale disconnected.
 
@@ -131,8 +131,7 @@ port.
 
 Unknown hostnames must return a controlled 404. Do not expose the Traefik dashboard
 or Docker socket through a route. Cloudflare Access remains responsible for
-identity protection on public Cloudflare hostnames; local services remain bound to
-localhost or private Docker networks.
+identity protection on public Cloudflare hostnames.
 
 ## Toolchain and update policy
 
@@ -188,8 +187,8 @@ table; do not use floating application or container tags such as `latest`.
 - Do not run destructive Docker/system cleanup, remove volumes, uninstall software, alter firewall rules, or change SSH authentication without explicit user approval.
 - Before deleting a service or volume, identify what owns it and whether persistent data has been backed up or migrated.
 - Prefer exact service/container names over broad `pkill`, `docker system prune --volumes`, or similar blanket cleanup.
-- Keep applications on `127.0.0.1` by default; require explicit approval for an
-  exception. Prefer Tailscale or Cloudflare Tunnel over public firewall ports.
+- Prefer Tailscale or Cloudflare Tunnel over public firewall ports. Docker
+  bindings follow the localhost default in the Docker policy above.
 
 ### OpenCode
 
@@ -202,8 +201,8 @@ table; do not use floating application or container tags such as `latest`.
   Expect `~/.opencode/bin/opencode`; do not substitute apt, Homebrew, or global npm.
 - Run exactly one OpenCode server on `127.0.0.1:4096` with
   `opencode serve --hostname 127.0.0.1 --port 4096`.
-- The shared authentication policy above permits no OpenCode password only while
-  the listener is `127.0.0.1:4096`.
+- Keep the listener at `127.0.0.1:4096` to follow the shared localhost-only
+  authentication policy.
 - The local `~/.opencode/package.json` and `node_modules` are supporting plugin
   dependencies, not the CLI installation.
 
@@ -224,8 +223,8 @@ table; do not use floating application or container tags such as `latest`.
 
 - Use native code-server so editor and development tools share the host environment.
 - Run it as `code-server@<user>` and bind only to `127.0.0.1:8080`.
-- The shared authentication policy above permits `auth: none` only while it remains
-  localhost-bound.
+- Keep the listener at `127.0.0.1:8080` to follow the shared localhost-only
+  authentication policy.
 - Preserve `~/.local/share/code-server` and `~/.config/code-server` when migrating or rebuilding.
 
 ### Excalidraw
@@ -297,12 +296,12 @@ Report, but never silently change: SSH exposure, `PermitRootLogin`,
 `PasswordAuthentication`, `X11Forwarding`, fail2ban, unattended security updates,
 wildcard listeners, and unexpected Tailscale Funnel.
 
-Use password-based OpenSSH over Tailscale as the approved access model; do not
-recommend public SSH keys or Tailscale SSH unless the user changes this policy.
+Follow the starting access policy above; do not silently change its authentication
+model.
 
 ## Completion criteria
 
 A setup is healthy when services are enabled and active as intended; listeners match
-the inventory; the approved tagged node advertises `svc:draw`, `svc:code`, and
-`svc:opencode`; Docker has no unexplained resources; and no secrets appear in logs,
-skill files, or repository-bound output.
+the inventory; the approved tagged node advertises `svc:draw`, `svc:code`,
+`svc:opencode`, and `svc:t3code`; Docker has no unexplained resources; and no secrets
+appear in logs, skill files, or repository-bound output.

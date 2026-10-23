@@ -65,7 +65,7 @@ if command -v ss >/dev/null 2>&1; then
 fi
 
 section "EXPECTED PORTS"
-for port in 80 4096 8080 8081; do
+for port in 80 3773 4096 8080 8081; do
   printf 'port %-5s ' "$port"
   if ss -H -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)$port$"; then
     echo LISTENING
@@ -75,15 +75,31 @@ for port in 80 4096 8080 8081; do
 done
 
 section "OPENCODE OWNERSHIP"
-opencode_lines=$(pgrep -af '/opencode (serve|web)' 2>/dev/null || true)
-if [ -n "$opencode_lines" ]; then
-  printf '%s\n' "$opencode_lines"
-  count=$(printf '%s\n' "$opencode_lines" | grep -c . || true)
-  if [ "$count" -gt 1 ]; then
-    echo "WARNING: more than one OpenCode serve/web process is running. Check service ownership."
-  fi
-else
+count=0
+for pid in $(pgrep -x opencode 2>/dev/null || true); do
+  [ -r "/proc/$pid/cmdline" ] || continue
+  process_cmd=$(tr '\0' ' ' <"/proc/$pid/cmdline")
+  case "$process_cmd" in
+    *" serve "*) role=serve ;;
+    *" web "*) role=web ;;
+    *) continue ;;
+  esac
+  count=$((count + 1))
+  ppid=$(awk '/^PPid:/ {print $2}' "/proc/$pid/status")
+  parent=$(ps -p "$ppid" -o comm= 2>/dev/null | xargs || true)
+  printf 'pid=%s role=%s user=%s ppid=%s parent=%s elapsed=%s\n' \
+    "$pid" "$role" "$(ps -p "$pid" -o user= | xargs)" "$ppid" \
+    "${parent:-unknown}" "$(ps -p "$pid" -o etime= | xargs)"
+  printf '  cgroup: '
+  tr '\n' ' ' <"/proc/$pid/cgroup" 2>/dev/null || true
+  printf '\n'
+done
+if [ "$count" -gt 1 ]; then
+  echo "WARNING: multiple OpenCode serve/web processes found; use parent and cgroup data to identify their owners."
+elif [ "$count" -eq 0 ]; then
   echo "No OpenCode serve/web process found."
+else
+  echo "One OpenCode serve/web process found."
 fi
 
 section "SERVICES"
@@ -92,6 +108,8 @@ printf 'code-server:       enabled='; status_cmd sudo -n systemctl is-enabled "c
 printf '                   active=';  status_cmd sudo -n systemctl is-active "code-server@$USER.service" | head -1
 printf 'opencode:          enabled='; status_cmd sudo -n systemctl is-enabled opencode.service | head -1
 printf '                   active=';  status_cmd sudo -n systemctl is-active opencode.service | head -1
+printf 't3code:            enabled='; status_cmd systemctl --user is-enabled t3code.service | head -1
+printf '                   active=';  status_cmd systemctl --user is-active t3code.service | head -1
 printf 'cloudflared:       enabled='; status_cmd sudo -n systemctl is-enabled cloudflared.service | head -1
 printf '                   active=';  status_cmd sudo -n systemctl is-active cloudflared.service | head -1
 printf 'tailscaled:        enabled='; status_cmd sudo -n systemctl is-enabled tailscaled.service | head -1
@@ -133,12 +151,38 @@ printf '\n--- Funnel ---\n'
 cmd tailscale funnel status
 printf '\n--- Named service host ---\n'
 cmd tailscale status --json | jq '.Self | {Tags, ServiceHost: (.CapMap["service-host"] // null)}' || true
+printf '\n--- Expected advertised services ---\n'
+service_host_json=$(tailscale status --json 2>/dev/null | jq -r '.Self.CapMap["service-host"][0] // {} | keys[]' 2>/dev/null || true)
+for service in svc:draw svc:code svc:opencode svc:t3code; do
+  if printf '%s\n' "$service_host_json" | grep -Fxq "$service"; then
+    printf '%s advertised\n' "$service"
+  else
+    printf '%s NOT FOUND\n' "$service"
+  fi
+done
 
 section "FIREWALL"
 cmd sudo ufw status verbose
 
 section "SSH EFFECTIVE SETTINGS"
-cmd sudo sshd -T | grep -E '^(port|permitrootlogin|passwordauthentication|pubkeyauthentication|allowusers|allowgroups|maxauthtries|x11forwarding) '
+ssh_effective=$(sudo sshd -T 2>/dev/null || true)
+printf '%s\n' "$ssh_effective" | grep -E '^(port|listenaddress|permitrootlogin|passwordauthentication|pubkeyauthentication|allowusers|allowgroups|maxauthtries|x11forwarding) '
+ssh_listen_addresses=$(printf '%s\n' "$ssh_effective" | awk '$1 == "listenaddress" {print $2}' | sed -E 's/^\[([^]]+)\]:.*/\1/; s/:22$//')
+tailscale_addresses=$( { tailscale ip -4 2>/dev/null; tailscale ip -6 2>/dev/null; } | sed '/^$/d')
+for address in $tailscale_addresses; do
+  if printf '%s\n' "$ssh_listen_addresses" | grep -Fxq "$address"; then
+    printf 'SSH bound to Tailscale address %s\n' "$address"
+  else
+    printf 'WARNING: SSH is not bound to Tailscale address %s\n' "$address"
+  fi
+done
+for address in $ssh_listen_addresses; do
+  if printf '%s\n' "$tailscale_addresses" | grep -Fxq "$address"; then
+    :
+  else
+    printf 'WARNING: SSH listens on non-Tailscale address %s\n' "$address"
+  fi
+done
 
 section "PUBLIC EXPOSURE CHECK"
 wildcard_listeners=$(sudo ss -H -ltnup 2>/dev/null | awk '$5 ~ /^(0\.0\.0\.0:|\[::\]:|\*:)/ {print}' || true)
@@ -147,8 +191,8 @@ if [ -n "$wildcard_listeners" ]; then
 else
   echo "No wildcard listeners detected."
 fi
-echo "Expected application bindings: 127.0.0.1:80 (Traefik), 127.0.0.1:4096, 127.0.0.1:8080, 127.0.0.1:8081."
-echo "SSH may listen on wildcard addresses only while UFW permits inbound traffic exclusively on tailscale0."
+echo "Expected application bindings: 127.0.0.1:80 (Traefik), 127.0.0.1:3773 (T3 Code), 127.0.0.1:4096 (OpenCode), 127.0.0.1:8080 (code-server), 127.0.0.1:8081 (Excalidraw)."
+echo "SSH should bind only to the VPS Tailscale addresses; UFW should permit inbound SSH only on tailscale0."
 
 section "SECURITY SERVICES"
 printf 'fail2ban='; cmd systemctl is-active fail2ban | head -1
@@ -177,6 +221,6 @@ printf '\n--- swarm ---\n'
 cmd docker info --format 'Swarm state: {{.Swarm.LocalNodeState}}'
 
 section "NOTES"
-echo "Expected local services: Traefik :80, OpenCode :4096, code-server :8080, Excalidraw :8081."
+echo "Expected local services: Traefik :80, T3 Code :3773, OpenCode :4096, code-server :8080, Excalidraw :8081."
 echo "Review any listener on 0.0.0.0/[::] and any Tailscale output not marked tailnet-only."
 echo "This script intentionally does not print credentials, Cloudflare tunnel tokens, or .env files."
