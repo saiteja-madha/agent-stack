@@ -153,6 +153,13 @@ verify each afterward. Service restarts require approval. Preserve rollback wher
 supported; otherwise stop and report the limitation. Keep procedures conceptual
 with minimal reproducible steps.
 
+Before maintenance, run `scripts/check-updates.sh` to compare installed versions,
+local APT candidates, upstream stable releases, managed Python interpreters, and
+running container image references. It is read-only: it does not refresh APT package
+indexes, install updates, or restart services. APT results reflect the local package
+index and may be stale; report unavailable upstream checks rather than treating them
+as current. Rerun it after maintenance to confirm the result.
+
 ## Tool inventory
 
 Maintain this table whenever the VPS is provisioned or updated. Pin application
@@ -274,8 +281,9 @@ References: [Cloudflare private applications](https://developers.cloudflare.com/
 
 ## Workflow
 
-1. Run `scripts/verify.sh`; compare services, listeners, Docker, firewall, Tailscale,
-   and tunnel state with this cookbook.
+1. Run `scripts/verify.sh` and `scripts/check-updates.sh`; compare health, versions,
+   services, listeners, Docker, firewall, Tailscale, and tunnel state with this
+   cookbook.
 2. Resolve ownership conflicts, especially duplicate OpenCode servers, then make the
    smallest change that reaches the desired state.
 3. Preserve configuration and authentication data. After each change, verify the
