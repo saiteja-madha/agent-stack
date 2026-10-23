@@ -137,8 +137,7 @@ localhost or private Docker networks.
 
 Install pnpm 12 with its official standalone installer, pinning the exact selected
 12.x release during provisioning. Use pnpm runtime management to install and select
-Node.js 24.x LTS globally; do not add NVM or Corepack. Keep npm optional and do not
-manage it separately unless a project requires it. Use uv at its latest stable
+Node.js 24.x LTS globally; do not add NVM or Corepack. Use uv at its latest stable
 release to manage Python versions, environments, and dependencies. Keep the Ubuntu
 system Python available for OS tooling; select and pin Python per project, using the
 newest stable version supported by that project.
@@ -166,7 +165,6 @@ table; do not use floating application or container tags such as `latest`.
 | Ubuntu | 22.04 LTS | Provider | apply security updates | |
 | Git | latest | `apt` | Host | Intentionally tracks the latest configured OS repository version |
 | Node.js | 24.x LTS | pnpm 12 runtime management | Host | Resolve and pin an exact 24.x LTS release during provisioning |
-| npm | Optional | Bundled with Node.js | Host | Do not manage separately unless a project requires it |
 | pnpm | 12.x | Official standalone installer | Host | Pin an exact 12.x release; manage Node and project dependencies |
 | uv | Latest stable | Official installer | Host | Use uv for Python installation, environments, and dependencies |
 | Python | Managed by uv | uv | Host | Install alongside system Python |

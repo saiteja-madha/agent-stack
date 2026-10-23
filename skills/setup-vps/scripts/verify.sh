@@ -37,7 +37,6 @@ cmd loginctl show-user "$USER" -p Linger
 section "TOOLCHAIN"
 for spec in \
   'node:node --version' \
-  'npm:npm --version' \
   'pnpm:pnpm --version' \
   'uv:uv --version' \
   'git:git --version' \
