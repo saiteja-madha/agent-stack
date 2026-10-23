@@ -79,6 +79,7 @@ Do not add a Tailscale SSH policy when regular OpenSSH is used. Do not grant the
 svc:draw      tcp:443 → http://127.0.0.1:8081
 svc:code      tcp:443 → http://127.0.0.1:8080
 svc:opencode  tcp:443 → http://127.0.0.1:4096
+svc:t3code    tcp:443 → http://127.0.0.1:3773
 ```
 
 Manually approve the tagged VPS for each service; use `autoApprovers.services` only
@@ -178,6 +179,7 @@ table; do not use floating application or container tags such as `latest`.
 | cloudflared | Latest stable | Official APT repository | Host service | Regular security updates |
 | Traefik | v3.7 immutable digest | Docker image | `127.0.0.1:80` | Docker labels plus file provider; dashboard disabled |
 | Excalidraw | Immutable digest | Docker Compose | `127.0.0.1:8081` | Render `templates/excalidraw/compose.yml` into `INFRA_ROOT/excalidraw` |
+| T3 Code | Latest stable | Official standalone installer | `127.0.0.1:3773` | Runs as `t3code.service` (user unit); connects to OpenCode on `127.0.0.1:4096` |
 
 ## Safety rules
 
@@ -234,6 +236,17 @@ table; do not use floating application or container tags such as `latest`.
 - Bind `127.0.0.1:8081:80`, use `restart: unless-stopped`, and do not add a volume
   unless a separate persistence or collaboration backend is intentionally configured.
 
+### T3 Code
+- Install with the official standalone installer; run as `t3code.service` (user unit)
+  on `127.0.0.1:3773`. Do not launch a separate `t3 serve` manually.
+- Point T3 Code at the external OpenCode server `http://127.0.0.1:4096` so it does
+  not spawn its own OpenCode instance.
+- Expose privately via `svc:t3code` (`127.0.0.1:3773`); disable T3 Connect.
+- With T3 Connect disabled and exposure via `svc:t3code`, T3 Code does not
+  spawn its own cloudflared or OpenCode instances. If T3 Connect or quick tunnels
+  are enabled, T3 may spawn a cloudflared Quick Tunnel; report it for manual
+  review rather than auto-excluding. OpenCode `--service` instances are not
+  T3-managed and require investigation.
 ### Cloudflare Tunnel
 
 - Prefer `127.0.0.1` over `localhost` for explicit IPv4 loopback targets.
