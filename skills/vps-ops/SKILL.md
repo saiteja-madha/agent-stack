@@ -1,12 +1,14 @@
 ---
-name: setup-vps
-description: Audit, set up, and maintain a personal Ubuntu VPS for AI-assisted development using OpenCode, Codex CLI, code-server, Tailscale, Cloudflare Tunnel/Access, Docker, and Excalidraw. Use when provisioning or rebuilding the VPS, changing these services, checking exposure/firewall state, migrating workloads, or troubleshooting the AI development stack.
+name: vps-ops
+description: Set up, audit, secure, maintain, migrate, and troubleshoot a personal Ubuntu VPS for AI-assisted development. Use for provisioning or rebuilds, health and exposure reviews, stack updates or migrations, and creating or reviewing Docker Compose or publishing configurations intended for this VPS. Covers Docker, Traefik, Tailscale, Cloudflare Tunnel/Access, and the host development tools.
 ---
 
 # Setup VPS
 
-Maintain a single-user Ubuntu/Debian AI-development VPS with host-native developer
-tools, localhost-only applications, Docker, Tailscale, and Cloudflare Tunnel.
+Maintain a single-user Ubuntu AI-development VPS with host-native developer
+tools, localhost-only applications, Docker, Tailscale, and Cloudflare Tunnel. If
+the host runs Debian, identify its release and adapt package and service details
+before making changes; the tool inventory targets Ubuntu 22.04.
 
 ## Required intake
 
@@ -93,10 +95,12 @@ from a tailnet device, and none works with Tailscale disconnected.
 ## Docker policy
 
 Enable the Docker daemon at boot and configure containers to restart automatically.
-Use Docker Compose as the standard deployment method. Bind all container ports to
-localhost by default. Use exact image tags or digests, never floating application
-tags. Do not automate volume backups yet. Require explicit approval for destructive
-Docker actions, including removing containers, images, volumes, networks, or build
+Use Docker Compose as the standard deployment method. For directly accessed host
+ports, bind to `127.0.0.1` by default. For container-only communication, use a Docker
+network without publishing a host port. For Traefik-published apps, use `expose` and
+explicit routing labels as described below. Pin application images to exact tags or
+digests; never use floating tags. Do not automate volume backups yet. Require
+explicit approval before removing containers, images, volumes, networks, or build
 cache.
 
 ## Reverse proxy and app publishing
@@ -189,26 +193,22 @@ table; do not use floating application or container tags such as `latest`.
 
 ## Safety rules
 
-- Start with a read-only audit. Run `scripts/verify.sh` before proposing changes.
-- Never print, commit, or request API keys, OAuth tokens, Cloudflare tunnel tokens, passwords, private SSH keys, or `.env` contents.
+- Never expose API keys, OAuth tokens, Cloudflare tunnel tokens, passwords, private SSH keys, or `.env` contents in output, logs, or repository files; never request these secrets in chat.
 - Do not run destructive Docker/system cleanup, remove volumes, uninstall software, alter firewall rules, or change SSH authentication without explicit user approval.
 - Before deleting a service or volume, identify what owns it and whether persistent data has been backed up or migrated.
 - Prefer exact service/container names over broad `pkill`, `docker system prune --volumes`, or similar blanket cleanup.
-- Prefer Tailscale or Cloudflare Tunnel over public firewall ports. Docker
-  bindings follow the localhost default in the Docker policy above.
 
 ### OpenCode
 
 - Install the host-native OpenCode CLI with its official user-local installer:
 
   ```bash
-  curl -fsSL https://opencode.ai/install | bash
+  curl -fsSL https://opencode.ai/v2/install | bash
   ```
 
   Expect `~/.opencode/bin/opencode`; do not substitute apt, Homebrew, or global npm.
 - Run exactly one OpenCode server on `127.0.0.1:4096` with
-  `opencode serve --hostname 127.0.0.1 --port 4096`.
-- Keep the listener at `127.0.0.1:4096` to follow the shared localhost-only
+  `opencode serve --hostname 127.0.0.1 --port 4096` to follow the localhost-only
   authentication policy.
 - The local `~/.opencode/package.json` and `node_modules` are supporting plugin
   dependencies, not the CLI installation.
@@ -229,9 +229,8 @@ table; do not use floating application or container tags such as `latest`.
 ### code-server
 
 - Use native code-server so editor and development tools share the host environment.
-- Run it as `code-server@<user>` and bind only to `127.0.0.1:8080`.
-- Keep the listener at `127.0.0.1:8080` to follow the shared localhost-only
-  authentication policy.
+- Run it as `code-server@<user>` and bind only to `127.0.0.1:8080` to follow the
+  localhost-only authentication policy.
 - Preserve `~/.local/share/code-server` and `~/.config/code-server` when migrating or rebuilding.
 
 ### Excalidraw
@@ -281,35 +280,30 @@ References: [Cloudflare private applications](https://developers.cloudflare.com/
 
 ## Workflow
 
-1. Run `scripts/verify.sh` and `scripts/check-updates.sh`; compare health, versions,
-   services, listeners, Docker, firewall, Tailscale, and tunnel state with this
-   cookbook.
-2. Resolve ownership conflicts, especially duplicate OpenCode servers, then make the
-   smallest change that reaches the desired state.
-3. Preserve configuration and authentication data. After each change, verify the
-   version, service/container health, expected listener, and public exposure.
-4. For migrations, verify data, settings, extensions, and a fresh session before
+1. Start with `scripts/verify.sh` and compare the current state with this policy.
+   For maintenance, also run `scripts/check-updates.sh` before and after updates.
+2. Resolve ownership conflicts, then make the smallest change that reaches the
+   requested state. Preserve configuration and authentication data; verify the
+   affected versions, health, listeners, and exposure afterward.
+3. For migrations, verify data, settings, extensions, and a fresh session before
    removing the old source.
-5. Rerun `scripts/verify.sh` and report remaining warnings.
-
-For maintenance, use each component's documented source and update independently.
-Apply Ubuntu security origins only. Restart only affected services with approval.
-For kernel/core-library updates, verify SSH and Tailscale, reboot in a controlled
-way, then confirm the kernel and stack. Updates may interrupt active sessions and
-WebSockets; never print commands or logs containing tokens.
+4. Report remaining warnings. Maintenance uses documented install sources and
+   Ubuntu security origins; preserve rollback where supported. Restarts require
+   approval. For kernel or core-library updates, verify SSH and Tailscale around a
+   controlled reboot. Updates may interrupt sessions and WebSockets.
 
 ## Security review
 
 Report, but never silently change: SSH exposure, `PermitRootLogin`,
 `PasswordAuthentication`, `X11Forwarding`, fail2ban, unattended security updates,
-wildcard listeners, and unexpected Tailscale Funnel.
-
-Follow the starting access policy above; do not silently change its authentication
-model.
+wildcard listeners, and unexpected Tailscale Funnel. A wildcard listener shows
+which interfaces accept connections; it does not by itself prove public internet
+reachability. Report host firewall and provider-firewall evidence separately, and
+only claim external reachability when confirmed from outside the VPS or by
+authoritative provider firewall configuration.
 
 ## Completion criteria
 
 A setup is healthy when services are enabled and active as intended; listeners match
 the inventory; the approved tagged node advertises `svc:draw`, `svc:code`,
-`svc:opencode`, and `svc:t3code`; Docker has no unexplained resources; and no secrets
-appear in logs, skill files, or repository-bound output.
+`svc:opencode`, and `svc:t3code`; and Docker has no unexplained resources.

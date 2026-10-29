@@ -184,7 +184,7 @@ for address in $ssh_listen_addresses; do
   fi
 done
 
-section "PUBLIC EXPOSURE CHECK"
+section "WILDCARD LISTENERS (INTERFACE BINDINGS)"
 wildcard_listeners=$(sudo ss -H -ltnup 2>/dev/null | awk '$5 ~ /^(0\.0\.0\.0:|\[::\]:|\*:)/ {print}' || true)
 if [ -n "$wildcard_listeners" ]; then
   printf '%s\n' "$wildcard_listeners"
@@ -193,6 +193,7 @@ else
 fi
 echo "Expected application bindings: 127.0.0.1:80 (Traefik), 127.0.0.1:3773 (T3 Code), 127.0.0.1:4096 (OpenCode), 127.0.0.1:8080 (code-server), 127.0.0.1:8081 (Excalidraw)."
 echo "SSH should bind only to the VPS Tailscale addresses; UFW should permit inbound SSH only on tailscale0."
+echo "Listener bindings do not establish public internet reachability; also inspect provider firewall rules or test from outside the VPS."
 
 section "SECURITY SERVICES"
 printf 'fail2ban='; cmd systemctl is-active fail2ban | head -1
