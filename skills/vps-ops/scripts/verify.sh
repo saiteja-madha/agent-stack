@@ -40,6 +40,11 @@ for spec in \
   'pnpm:pnpm --version' \
   'uv:uv --version' \
   'git:git --version' \
+  'gh:gh --version' \
+  'bws:bws --version' \
+  'bwenv:bwenv --version' \
+  'hermes:hermes --version' \
+  't3:t3 --version' \
   'python3:python3 --version' \
   'docker:docker --version' \
   'opencode:opencode --version' \
@@ -51,7 +56,8 @@ do
   name=${spec%%:*}
   command=${spec#*:}
   printf '%-14s ' "$name"
-  bash -lc "$command" 2>/dev/null | head -1 || true
+  version_line=$(bash -lc "$command" 2>/dev/null | head -1 || true)
+  printf '%s\n' "${version_line:-[missing or unavailable]}"
 done
 printf '\n--- executable paths ---\n'
 for tool in node pnpm codex opencode cloudflared; do
@@ -61,11 +67,11 @@ done
 
 section "LISTENERS"
 if command -v ss >/dev/null 2>&1; then
-  sudo ss -ltnp 2>/dev/null || ss -ltn 2>/dev/null || true
+  sudo -n ss -ltnp 2>/dev/null || ss -ltn 2>/dev/null || true
 fi
 
 section "EXPECTED PORTS"
-for port in 80 3773 4096 8080 8081; do
+for port in 80 3773 4096 8080 8081 8888 9119 9999; do
   printf 'port %-5s ' "$port"
   if ss -H -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)$port$"; then
     echo LISTENING
@@ -117,6 +123,29 @@ printf '                   active=';  status_cmd sudo -n systemctl is-active tai
 printf 'docker:            enabled='; status_cmd sudo -n systemctl is-enabled docker.service | head -1
 printf '                   active=';  status_cmd sudo -n systemctl is-active docker.service | head -1
 
+for unit in hermes-dashboard.service hindsight.service; do
+  printf '%s enabled=' "$unit"; status_cmd systemctl --user is-enabled "$unit" | head -1
+  printf '  active='; status_cmd systemctl --user is-active "$unit" | head -1
+done
+
+if systemctl --user is-active --quiet hermes-gateway.service 2>/dev/null; then
+  echo "WARNING: messaging gateway is active but not required by the dashboard/app-only setup."
+fi
+
+section "SECRET WIRING (NO VALUES READ)"
+for tool in bws bwenv; do
+  printf '%s executable: ' "$tool"; command -v "$tool" 2>/dev/null || echo '[missing]'
+done
+for file in "$HOME/.config/vps-ops/runtime.env" "$HOME/.config/vps-ops/bws-token" "$HOME/.local/bin/vps-bwenv-exec.py"; do
+  if [ -f "$file" ]; then
+    stat -c '%a %U %n' "$file"
+  else
+    printf 'MISSING %s\n' "$file"
+  fi
+done
+echo "Check bootstrap file permissions and rendered LoadCredential directives without displaying token/environment values."
+echo "Run opt-in namespace and authentication probes after provisioning; this inventory does not fetch secrets or log in."
+
 section "SYSTEM HEALTH"
 printf '%s\n' '--- failed units ---'
 cmd systemctl --failed --no-legend
@@ -153,7 +182,7 @@ printf '\n--- Named service host ---\n'
 cmd tailscale status --json | jq '.Self | {Tags, ServiceHost: (.CapMap["service-host"] // null)}' || true
 printf '\n--- Expected advertised services ---\n'
 service_host_json=$(tailscale status --json 2>/dev/null | jq -r '.Self.CapMap["service-host"][0] // {} | keys[]' 2>/dev/null || true)
-for service in svc:draw svc:code svc:opencode svc:t3code; do
+for service in svc:draw svc:code svc:opencode svc:t3code svc:hermes svc:hindsight; do
   if printf '%s\n' "$service_host_json" | grep -Fxq "$service"; then
     printf '%s advertised\n' "$service"
   else
@@ -162,10 +191,10 @@ for service in svc:draw svc:code svc:opencode svc:t3code; do
 done
 
 section "FIREWALL"
-cmd sudo ufw status verbose
+cmd sudo -n ufw status verbose
 
 section "SSH EFFECTIVE SETTINGS"
-ssh_effective=$(sudo sshd -T 2>/dev/null || true)
+ssh_effective=$(sudo -n sshd -T 2>/dev/null || true)
 printf '%s\n' "$ssh_effective" | grep -E '^(port|listenaddress|permitrootlogin|passwordauthentication|pubkeyauthentication|allowusers|allowgroups|maxauthtries|x11forwarding) '
 ssh_listen_addresses=$(printf '%s\n' "$ssh_effective" | awk '$1 == "listenaddress" {print $2}' | sed -E 's/^\[([^]]+)\]:.*/\1/; s/:22$//')
 tailscale_addresses=$( { tailscale ip -4 2>/dev/null; tailscale ip -6 2>/dev/null; } | sed '/^$/d')
@@ -185,19 +214,25 @@ for address in $ssh_listen_addresses; do
 done
 
 section "WILDCARD LISTENERS (INTERFACE BINDINGS)"
-wildcard_listeners=$(sudo ss -H -ltnup 2>/dev/null | awk '$5 ~ /^(0\.0\.0\.0:|\[::\]:|\*:)/ {print}' || true)
+wildcard_listeners=$(sudo -n ss -H -ltnup 2>/dev/null | awk '$5 ~ /^(0\.0\.0\.0:|\[::\]:|\*:)/ {print}' || true)
 if [ -n "$wildcard_listeners" ]; then
   printf '%s\n' "$wildcard_listeners"
 else
   echo "No wildcard listeners detected."
 fi
-echo "Expected application bindings: 127.0.0.1:80 (Traefik), 127.0.0.1:3773 (T3 Code), 127.0.0.1:4096 (OpenCode), 127.0.0.1:8080 (code-server), 127.0.0.1:8081 (Excalidraw)."
+echo "Expected application bindings: 127.0.0.1:80 (Traefik), 127.0.0.1:3773 (T3 Code), 127.0.0.1:4096 (OpenCode), 127.0.0.1:8080 (code-server), 127.0.0.1:8081 (Excalidraw), 127.0.0.1:8888 (Hindsight API), 127.0.0.1:9119 (Hermes), 127.0.0.1:9999 (Hindsight UI)."
 echo "SSH should bind only to the VPS Tailscale addresses; UFW should permit inbound SSH only on tailscale0."
 echo "Listener bindings do not establish public internet reachability; also inspect provider firewall rules or test from outside the VPS."
 
 section "SECURITY SERVICES"
 printf 'fail2ban='; cmd systemctl is-active fail2ban | head -1
 printf 'unattended-upgrades='; cmd systemctl is-enabled unattended-upgrades | head -1
+
+printf '\n--- Effective automatic upgrade policy ---\n'
+cmd apt-config dump | grep -E '^APT::Periodic::(Update-Package-Lists|Unattended-Upgrade)|^Unattended-Upgrade::(Allowed-Origins|Origins-Pattern)' || true
+if apt-config dump 2>/dev/null | grep -Eq '^APT::Periodic::Unattended-Upgrade "0";'; then
+  echo "WARNING: automatic upgrade execution is disabled despite any enabled service."
+fi
 
 section "DOCKER"
 cmd docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
@@ -222,6 +257,8 @@ printf '\n--- swarm ---\n'
 cmd docker info --format 'Swarm state: {{.Swarm.LocalNodeState}}'
 
 section "NOTES"
-echo "Expected local services: Traefik :80, T3 Code :3773, OpenCode :4096, code-server :8080, Excalidraw :8081."
+echo "Expected local services: Traefik :80, T3 Code :3773, OpenCode :4096, code-server :8080, Excalidraw :8081, Hindsight API :8888, Hermes :9119, Hindsight UI :9999."
 echo "Review any listener on 0.0.0.0/[::] and any Tailscale output not marked tailnet-only."
 echo "This script intentionally does not print credentials, Cloudflare tunnel tokens, or .env files."
+
+echo "This is a best-effort inventory, not a pass/fail gate. Missing privileges or unavailable output require follow-up; exit status does not establish compliance."

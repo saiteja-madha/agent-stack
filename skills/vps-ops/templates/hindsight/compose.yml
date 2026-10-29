@@ -1,0 +1,49 @@
+name: hindsight
+
+services:
+  db:
+    image: ${HINDSIGHT_POSTGRES_IMAGE:?Set a compatible pgvector image at an immutable digest}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hindsight
+      POSTGRES_DB: hindsight
+      POSTGRES_PASSWORD: ${HINDSIGHT_DB_PASSWORD:?Set a generated URI-safe password}
+      # Explicit location avoids dependence on image-major default mount changes.
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hindsight -d hindsight"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  hindsight:
+    image: ${HINDSIGHT_IMAGE:?Set the full ghcr.io/vectorize-io/hindsight image at an immutable digest}
+    restart: unless-stopped
+    stop_grace_period: 75s
+    environment:
+      HINDSIGHT_API_DATABASE_URL: postgresql://hindsight:${HINDSIGHT_DB_PASSWORD:?Set a generated URI-safe password}@db:5432/hindsight
+      HINDSIGHT_API_HOST: 0.0.0.0
+      HINDSIGHT_API_PORT: "8888"
+      HINDSIGHT_ENABLE_API: "true"
+      HINDSIGHT_ENABLE_CP: "true"
+      HINDSIGHT_CP_DATAPLANE_API_URL: http://127.0.0.1:8888
+      HINDSIGHT_API_LLM_PROVIDER: openai-codex
+      HINDSIGHT_API_LLM_MODEL: ${HINDSIGHT_API_LLM_MODEL:?Select a supported Codex model}
+      HINDSIGHT_API_LLM_CODEX_HOME: /var/lib/hindsight/codex
+    volumes:
+      - type: bind
+        source: ./codex-auth
+        target: /var/lib/hindsight/codex
+        bind:
+          create_host_path: false
+    ports:
+      - "127.0.0.1:8888:8888"
+      - "127.0.0.1:9999:9999"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pg_data:

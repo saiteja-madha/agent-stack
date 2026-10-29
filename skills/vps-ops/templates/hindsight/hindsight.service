@@ -1,0 +1,20 @@
+[Unit]
+Description=Hindsight Docker Compose stack
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Render this path if INFRA_ROOT differs from %h/infra.
+WorkingDirectory=%h/infra/hindsight
+EnvironmentFile=%h/.config/vps-ops/runtime.env
+LoadCredential=bws-token:%h/.config/vps-ops/bws-token
+ExecStart=%h/.local/bin/vps-bwenv-exec.py hindsight /usr/bin/docker compose up -d --wait --wait-timeout 300
+ExecStop=/usr/bin/docker compose stop
+TimeoutStartSec=360
+TimeoutStopSec=120
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

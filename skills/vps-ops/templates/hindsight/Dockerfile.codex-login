@@ -1,0 +1,9 @@
+# Temporary login helper only; not a long-running service or Hindsight image.
+ARG NODE_IMAGE
+FROM ${NODE_IMAGE}
+ARG CODEX_VERSION
+RUN node -e 'if (!/^\d+\.\d+\.\d+$/.test(process.argv[1])) process.exit(1)' "${CODEX_VERSION}" \
+    && npm install --global "@openai/codex@${CODEX_VERSION}"
+USER node
+WORKDIR /home/node
+ENTRYPOINT ["codex", "--config", "cli_auth_credentials_store=\"file\"", "login", "--device-auth"]

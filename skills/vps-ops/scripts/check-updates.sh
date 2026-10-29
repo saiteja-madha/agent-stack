@@ -78,7 +78,7 @@ fetch_node_index() {
 }
 
 for repo in pnpm/pnpm astral-sh/uv openai/codex \
-  coder/code-server tailscale/tailscale cloudflare/cloudflared pingdotgg/t3code; do
+  coder/code-server tailscale/tailscale cloudflare/cloudflared pingdotgg/t3code cli/cli NousResearch/hermes-agent saiteja-madha/bwenv; do
   fetch_release_list "$repo" &
 done
 fetch_opencode_tags &
@@ -136,10 +136,16 @@ report_release code-server "$(installed_from_command code-server --version)" cod
 report_release Tailscale "$(installed_from_command tailscale version)" tailscale/tailscale
 report_release cloudflared "$(installed_from_command cloudflared --version)" cloudflare/cloudflared
 report_release T3-Code "$(installed_from_command t3 --version)" pingdotgg/t3code
+report_release GitHub-CLI "$(installed_from_command gh --version)" cli/cli
+report_release Hermes "$(installed_from_command hermes --version)" NousResearch/hermes-agent
+report_release bwenv "$(installed_from_command bwenv --version)" saiteja-madha/bwenv
+bws_installed=$(installed_from_command bws --version)
+printf 'bws installed=%s; compare against the recorded official Bitwarden SDK bws release (SDK tags are not CLI versions).\n' "${bws_installed:-unknown}"
 
 echo
 echo '--- Configured APT package candidates ---'
 report_apt Git git
+report_apt GitHub-CLI gh
 report_apt Docker docker-ce
 report_apt Compose docker-compose-plugin
 report_apt code-server code-server

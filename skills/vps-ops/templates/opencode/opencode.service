@@ -1,0 +1,22 @@
+[Unit]
+Description=OpenCode v2 server
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=<admin-user>
+WorkingDirectory=/home/<admin-user>
+EnvironmentFile=/home/<admin-user>/.config/vps-ops/runtime.env
+LoadCredential=bws-token:/home/<admin-user>/.config/vps-ops/bws-token
+ExecStart=/home/<admin-user>/.local/bin/vps-bwenv-exec.py opencode /home/<admin-user>/.opencode/bin/opencode serve --hostname 127.0.0.1 --port 4096
+Restart=on-failure
+RestartSec=15
+KillMode=control-group
+TimeoutStopSec=60
+# Standalone v2 may print the server password on stdout at startup.
+StandardOutput=null
+
+[Install]
+WantedBy=multi-user.target
